@@ -91,7 +91,7 @@ namespace SmartTraits
             return !hasError;
         }
 
-        private static void AddProxy(ClassDeclarationSyntax traitClass, StringBuilder sb, SemanticModel semanticModel, NamespaceDeclarationSyntax namespaceNode)
+        private static void AddProxy(ClassDeclarationSyntax traitClass, StringBuilder sb, SemanticModel semanticModel, NamespaceDeclarationSyntax namespaceNode, bool nested = false)
         {
             if (traitClass.BaseList == null)
                 return;
@@ -100,6 +100,8 @@ namespace SmartTraits
 
             if (!traitClass.BaseList.Types.Any())
                 sb.AppendLine("#warning base list types is empty");
+
+            ClassDeclarationSyntax parentClass = null;
 
             foreach (var baseListType in traitClass.BaseList.Types)
             {
@@ -114,7 +116,25 @@ namespace SmartTraits
                     continue;
                 }
 
-                if (baseTypeNode.Kind() != SyntaxKind.InterfaceDeclaration)
+                var nodeKind = baseTypeNode.Kind();
+                
+                if (nodeKind == SyntaxKind.ClassDeclaration)
+                {
+                    if (parentClass is null && baseTypeNode is ClassDeclarationSyntax pc && pc.HasAttributeOfType(new[] { "Trait" }))
+                    {
+                        //AddProxy(parentClass, sb, semanticModel, namespaceNode, true);
+                        parentClass = pc;
+                        continue;
+                    }
+                    else
+                    {
+                        sb.AppendLine($"#error only interfaces and a parent Trait base type are allowed for Trait base types, but got {baseListType.Type}");
+                        continue;
+                    }
+                }
+                else
+                
+                if (nodeKind != SyntaxKind.InterfaceDeclaration)
                 {
                     sb.AppendLine($"#error only interfaces are allowed for Trait base types, but got {baseListType.Type}");
                     continue;
@@ -126,9 +146,19 @@ namespace SmartTraits
                 if (typeAttrs.Any(w => Consts.TraitInterfaceAttributes.Contains(w.AttributeClass?.Name)))
                     continue;
 
-                foreach (ISymbol symbol in typeInfo.Type.GetMembers())
+                var members = typeInfo.Type.GetMembers();
+                foreach (ISymbol symbol in members)
                 {
-                    if (addedProxies.Count == 0)
+                    if (parentClass != null)
+                        System.Diagnostics.Debug.WriteLine("TraitProcessor.");
+
+                    SyntaxNode node = symbol.DeclaringSyntaxReferences.FirstOrDefault()?.GetSyntax();
+                    if (node == null 
+                        || node is AccessorDeclarationSyntax
+                        )
+                        continue;
+
+                    if (!nested && addedProxies.Count == 0)
                     {
                         if (namespaceNode != null)
                             sb.AppendLine($"namespace {namespaceNode.Name} {{");
@@ -138,9 +168,6 @@ namespace SmartTraits
                         sb.AppendLine($"    abstract class BaseProxy{traitClass.Identifier} {{");
                     }
 
-                    SyntaxNode node = symbol.DeclaringSyntaxReferences.FirstOrDefault()?.GetSyntax();
-                    if (node == null)
-                        continue;
 
                     string proxyMember = "        public abstract " + node;
 
@@ -154,7 +181,12 @@ namespace SmartTraits
                 }
             }
 
-            if (addedProxies.Count > 0)
+            if (parentClass != null)
+            {
+                //AddProxy(parentClass, sb, semanticModel, namespaceNode, true);
+            }
+
+            if (!nested && addedProxies.Count > 0)
             {
                 sb.AppendLine("}");
 
@@ -162,5 +194,7 @@ namespace SmartTraits
                     sb.AppendLine("}");
             }
         }
+
+
     }
 }
