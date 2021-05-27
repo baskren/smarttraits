@@ -131,12 +131,14 @@ namespace SmartTraits
                     }
                 }
                 else
-                
+
                 if (nodeKind != SyntaxKind.InterfaceDeclaration)
                 {
                     sb.AppendLine($"#error only interfaces are allowed for Trait base types, but got {baseListType.Type}");
                     continue;
                 }
+                else
+                    continue;
 
                 ImmutableArray<AttributeData> typeAttrs = typeInfo.Type.GetAttributes();
 
@@ -146,7 +148,7 @@ namespace SmartTraits
 
                 foreach (ISymbol symbol in typeInfo.Type.GetMembers())
                 {
-                    if (addedProxies.Count == 0)
+                    if (!addedProxies.Any())
                     {
                         if (namespaceNode != null)
                             sb.AppendLine($"namespace {namespaceNode.Name} {{");
@@ -172,7 +174,7 @@ namespace SmartTraits
                 }
             }
 
-            if (addedProxies.Count > 0)
+            if (addedProxies.Any())
             {
                 sb.AppendLine("}");
 
