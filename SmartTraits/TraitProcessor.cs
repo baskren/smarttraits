@@ -137,8 +137,6 @@ namespace SmartTraits
                     sb.AppendLine($"#error only interfaces are allowed for Trait base types, but got {baseListType.Type}");
                     continue;
                 }
-                else
-                    continue;
 
                 ImmutableArray<AttributeData> typeAttrs = typeInfo.Type.GetAttributes();
 
@@ -160,6 +158,8 @@ namespace SmartTraits
 
                     SyntaxNode node = symbol.DeclaringSyntaxReferences.FirstOrDefault()?.GetSyntax();
                     if (node == null)
+                        continue;
+                    if (node is MethodDeclarationSyntax method && method.SemicolonToken.IsKind(SyntaxKind.None))
                         continue;
 
                     string proxyMember = "        public abstract " + node;
