@@ -7,7 +7,7 @@ namespace SmartTraits.Tests
         static void Main(string[] args)
         {
             Console.WriteLine("Hello SmartTraits!");
-
+/*
             Stage1.Test.Example();
 
             Stage2.Test.Example();
@@ -19,7 +19,7 @@ namespace SmartTraits.Tests
             Stage5.Test.Example();
 
             Stage6.Test.Example();
-
+*/
             Stage7.Test.Example();
         }
     }
