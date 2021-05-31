@@ -81,13 +81,13 @@ namespace SmartTraits
 
         public static string GetUniqueFileName(HashSet<string> generatedFiles, string sourcefileName)
         {
-            string fileName = $"SmartTraitsGenerator.{sourcefileName}.cs";
+            string fileName = $"{sourcefileName}.g.cs";
             if (!generatedFiles.Contains(fileName))
                 return fileName;
 
             for (int i = 1; i < 1000; i++)
             {
-                fileName = $"SmartTraitsGenerator.{sourcefileName}.{i}.cs";
+                fileName = $"{sourcefileName}.{i}.g.cs";
                 if (!generatedFiles.Contains(fileName))
                     return fileName;
             }
@@ -288,33 +288,53 @@ namespace SmartTraits
             return memberNode;
         }
 
-        public static void AddToGeneratedSources(GeneratorExecutionContext context, HashSet<string> generatedFiles, MemberDeclarationSyntax memberNode, StringBuilder sb, string defaultFileName = "Common", AttributeSyntax addTraitAttr = null, SemanticModel semanticModel = null)
+        public static void AddToGeneratedSources(GeneratorExecutionContext context, HashSet<string> generatedFiles, MemberDeclarationSyntax memberNode, StringBuilder sb, string defaultFileName = "Common", AttributeSyntax addTraitAttr = null, SemanticModel semanticModel = null, ClassDeclarationSyntax traitClassNode = null)
         {
             context.CancellationToken.ThrowIfCancellationRequested();
 
             string fileName = defaultFileName;
             if (memberNode != null)
                 fileName = Path.GetFileNameWithoutExtension(memberNode.SyntaxTree.FilePath);
-            if (semanticModel != null && addTraitAttr != null)
+            if (semanticModel != null) 
             {
-                var firstParam = addTraitAttr.ArgumentList?.Arguments.FirstOrDefault();
+                var traitClassName = string.Empty;
+                if (addTraitAttr != null)
+                {
+                    var firstParam = addTraitAttr.ArgumentList?.Arguments.FirstOrDefault();
 
-                var typeofTraitNode = firstParam?.DescendantNodes().OfType<TypeOfExpressionSyntax>().FirstOrDefault();
-                if (typeofTraitNode == null)
-                    return;
+                    var typeofTraitNode = firstParam?.DescendantNodes().OfType<TypeOfExpressionSyntax>().FirstOrDefault();
+                    if (typeofTraitNode == null)
+                        return;
 
-                TypeInfo addTraitType = semanticModel.GetTypeInfo(typeofTraitNode.Type);
-                string traitClassName = addTraitType.Type?.ToDisplayString();
-                fileName = traitClassName + "." + fileName;
+                    TypeInfo addTraitType = semanticModel.GetTypeInfo(typeofTraitNode.Type);
+                    traitClassName = addTraitType.Type?.ToDisplayString();
+                }
+                else if (traitClassNode is ClassDeclarationSyntax traitClass)
+                    traitClassName = traitClassNode.Identifier.ToFullString();
+                fileName = traitClassName.Trim() + "." + fileName;
             }
 
             string generatedFileName = Utils.GetUniqueFileName(generatedFiles, fileName);
-            var x = sb.ToString();
-            if (x.Contains("ExampleC"))
-                System.Diagnostics.Debug.WriteLine("Utils.");
             context.AddSource(generatedFileName, sb.ToString());
 
             generatedFiles.Add(generatedFileName);
+        }
+
+        public static string GetSpanText(this SyntaxNode node, Microsoft.CodeAnalysis.Text.TextSpan span)
+        {
+            while (node.FullSpan.Start > 0)
+                node = node.Parent;
+            return node.ToFullString().Substring(span.Start, span.Length);
+        }
+
+        public static string GetSpanText(this SyntaxNode node, int start, int length = -1)
+        {
+            while (node.FullSpan.Start > 0)
+                node = node.Parent;
+            if (length < 0)
+                return node.ToFullString().Substring(start);
+            else
+                return node.ToFullString().Substring(start, length);
         }
     }
 }

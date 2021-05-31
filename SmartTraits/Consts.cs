@@ -3,7 +3,9 @@
     public static class Consts
     {
         public static readonly string[] AddTraitAttributes = { "AddTrait", "AddTraitAttribute", "SmartTraitsDefs.AddTrait", "SmartTraitsDefs.AddTraitAttribute" };
+        public static readonly string[] AddSimpleTraitAttributes = { "AddSimpleTrait", "AddSimpleTraitAttribute", "SmartTraitsDefs.AddSimpleTrait", "SmartTraitsDefs.AddSimpleTraitAttribute" };
         public static readonly string[] TraitAttributes = { "Trait", "TraitAttribute", "SmartTraitsDefs.Trait", "SmartTraitsDefs.TraitAttribute" };
+        public static readonly string[] SimpleTraitAttributes = { "SimpleTrait", "SimpleTraitAttribute", "SmartTraitsDefs.SimpleTrait", "SmartTraitsDefs.SimpleTraitAttribute" };
         public static readonly string[] TraitInterfaceAttributes = { "TraitInterface", "TraitInterfaceAttribute", "SmartTraitsDefs.TraitInterface", "SmartTraitsDefs.TraitInterfaceAttribute" };
         public static readonly string[] TraitIgnoreAttributes = { "TraitIgnore", "TraitIgnoreAttribute", "SmartTraitsDefs.TraitIgnore", "SmartTraitsDefs.TraitIgnoreAttribute" };
         public static readonly string[] TraitProcessAttributes = { "TraitProcess", "TraitProcessAttribute", "SmartTraitsDefs.TraitProcess", "SmartTraitsDefs.TraitProcessAttribute" };

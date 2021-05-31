@@ -11,6 +11,179 @@ namespace SmartTraits
 {
     public static class AddTraitProcessor
     {
+        static void ProcessAddSimpleTrait(GeneratorExecutionContext context, HashSet<string> generatedFiles, ClassDeclarationSyntax traitClassNode, SemanticModel semanticModel, ClassDeclarationSyntax destClass, HashSet<string> alreadyProcessedTraits)
+        {
+            StringBuilder sb = new();
+
+            /*
+            var traitCompUnit = traitClassNode.Ancestors().OfType<CompilationUnitSyntax>().FirstOrDefault();
+            var usings = traitClassNode.GetSpanText(traitCompUnit.Usings.FullSpan);
+            sb.Append(usings);
+            sb.AppendLine("");
+            */
+            var start = traitClassNode.Span.Start;
+            var nameSpaceStringBuilder = new StringBuilder();
+            if (traitClassNode.Ancestors().OfType<NamespaceDeclarationSyntax>().FirstOrDefault() is NamespaceDeclarationSyntax traitNamespaceNode)
+            {
+                nameSpaceStringBuilder.AppendLine($"namespace {traitNamespaceNode.Name}");
+                nameSpaceStringBuilder.AppendLine("{");
+                start = traitNamespaceNode.Span.Start;
+            }
+
+            var usings = traitClassNode.GetSpanText(0, start);
+            sb.Append(usings);
+            sb.Append(nameSpaceStringBuilder);
+
+            sb.Append($"    {destClass.Modifiers} class {destClass.Identifier} ");
+
+            int end = traitClassNode.Identifier.Span.End;
+            var ancestorBuilder = new StringBuilder();
+            ancestorBuilder.Append(": ");
+            if (traitClassNode.BaseList?.Types is SeparatedSyntaxList<BaseTypeSyntax> types)
+            {
+                bool isFirst = true;
+                foreach (var baseType in types)
+                {
+                    end = baseType.Span.End;
+                    var namedTypeSymbol = semanticModel.Compilation.GetTypeByMetadataName(baseType.ToFullString().Trim());
+                    if (namedTypeSymbol is null)
+                    {
+                        if (traitClassNode.Parent is NamespaceDeclarationSyntax namespaceDeclaration)
+                        {
+                            var ns = namespaceDeclaration.Name.ToFullString().Trim();
+                            var typeName = ns + "." + baseType.ToFullString().Trim();
+                            namedTypeSymbol = semanticModel.Compilation.GetTypeByMetadataName(typeName);
+                        }
+                    }
+                    var baseTypeSyntax = namedTypeSymbol?.DeclaringSyntaxReferences.FirstOrDefault()?.GetSyntax();
+                    //var baseTypeSyntax = semanticModel.GetSymbolInfo(baseType.Type).Symbol?.DeclaringSyntaxReferences.FirstOrDefault()?.GetSyntax();
+                    if (baseTypeSyntax is ClassDeclarationSyntax baseClassNode)
+                    {
+                        if (isFirst)
+                        {
+                            if (baseClassNode.HasAttributeOfType(Consts.SimpleTraitAttributes))
+                            {
+                                ProcessAddSimpleTrait(context, generatedFiles, baseClassNode, semanticModel, destClass, alreadyProcessedTraits);
+                            }
+                            else
+                            {
+                                sb = Utils.ReturnError($"Only first base class is allowed to be a SimpleTrait class.  All others must be interfaces");
+                                Utils.AddToGeneratedSources(context, generatedFiles, destClass, sb, traitClassNode: traitClassNode, semanticModel: semanticModel);
+                                return;
+                            }
+                        }
+                        else
+                        {
+                            sb =  Utils.ReturnError($"Only first base class is allowed to be a SimpleTrait class.  All others must be interfaces");
+                            Utils.AddToGeneratedSources(context, generatedFiles, destClass, sb, traitClassNode: traitClassNode, semanticModel: semanticModel);
+                            return;
+                        }
+                    }
+                    else
+                    {
+                        // this is not a class ... so add it !
+                        var fullString = baseType.ToFullString().Trim();
+                        if (ancestorBuilder.Length > 2)
+                            ancestorBuilder.Append(", ");
+                        ancestorBuilder.Append(fullString);
+                    }
+                }
+            }
+            if (ancestorBuilder.Length > 2)
+                sb.Append(ancestorBuilder.ToString());
+
+            var remaining = traitClassNode.GetSpanText(end);
+            sb.Append(remaining);
+
+            Utils.AddToGeneratedSources(context, generatedFiles, destClass, sb, traitClassNode: traitClassNode, semanticModel: semanticModel);
+
+        }
+
+        public static void ProcessAddSimpleTrait(GeneratorExecutionContext context, HashSet<string> generatedFiles, AttributeSyntax addTraitAttr, SemanticModel semanticModel, ClassDeclarationSyntax destClass, HashSet<string> alreadyProcessedTraits)
+        {
+
+            var firstParam = addTraitAttr.ArgumentList?.Arguments.FirstOrDefault();
+
+            var typeofTraitNode = firstParam?.DescendantNodes().OfType<TypeOfExpressionSyntax>().FirstOrDefault();
+            if (typeofTraitNode == null)
+            {
+                var sb = Utils.ReturnError($"AddTrait param must be typeof(Type), but got {firstParam}");
+                Utils.AddToGeneratedSources(context, generatedFiles, destClass, sb, addTraitAttr: addTraitAttr, semanticModel: semanticModel);
+                return;
+            }
+
+            TypeInfo addTraitType = semanticModel.GetTypeInfo(typeofTraitNode.Type);
+            string traitClassName = addTraitType.Type?.ToDisplayString();
+
+            if (addTraitType.Type == null)
+            {
+                var sb = Utils.ReturnError($"the specified type \"{traitClassName}\" doesn't have any attributes");
+                Utils.AddToGeneratedSources(context, generatedFiles, destClass, sb, addTraitAttr: addTraitAttr, semanticModel: semanticModel);
+                return;
+            }
+
+            if (alreadyProcessedTraits.Contains(traitClassName))
+            {
+                var sb = Utils.ReturnError($"the trait \"{traitClassName}\" was already procesed, cannot have duplicate traits");
+                Utils.AddToGeneratedSources(context, generatedFiles, destClass, sb, addTraitAttr: addTraitAttr, semanticModel: semanticModel);
+                return;
+            }
+
+            alreadyProcessedTraits.Add(traitClassName);
+
+            if (!addTraitType.Type.GetAttributes().Any(w => Consts.SimpleTraitAttributes.Contains(w.AttributeClass?.Name)))
+            {
+                var sb = Utils.ReturnError($"the specified type \"{traitClassName}\" doesn't have SimpleTrait attribute");
+                Utils.AddToGeneratedSources(context, generatedFiles, destClass, sb, addTraitAttr: addTraitAttr, semanticModel: semanticModel);
+                return;
+            }
+
+
+            SyntaxNode traitTypeSyntax = semanticModel.GetSymbolInfo(typeofTraitNode.Type).Symbol?.DeclaringSyntaxReferences.FirstOrDefault()?.GetSyntax();
+
+            if (traitTypeSyntax is not ClassDeclarationSyntax traitClassNode)
+            {
+                var sb = Utils.ReturnError($"the specified Trait \"{traitClassName}\" is not a class");
+                Utils.AddToGeneratedSources(context, generatedFiles, destClass, sb, addTraitAttr: addTraitAttr, semanticModel: semanticModel);
+                return;
+            }
+
+            var traitCompUnit = traitClassNode.Ancestors().OfType<CompilationUnitSyntax>().FirstOrDefault();
+
+            if (traitCompUnit == null)
+            {
+                var sb = Utils.ReturnError($"cannot find computational unit for the class node {traitClassNode.Identifier}");
+                Utils.AddToGeneratedSources(context, generatedFiles, destClass, sb, addTraitAttr: addTraitAttr, semanticModel: semanticModel);
+                return;
+            }
+
+
+            string destinationGenerics = Utils.RemoveWhitespace(destClass.TypeParameterList?.ToString());
+            string traitGenerics = Utils.RemoveWhitespace(traitClassNode.TypeParameterList?.ToString());
+
+            if (traitGenerics != destinationGenerics)
+            {
+                var sb = Utils.ReturnError($"Generics definition should be exactly the same for Trait and destination classes, but got {Utils.RemoveNewLine(traitClassNode.TypeParameterList?.ToString())} and {Utils.RemoveNewLine(destClass.TypeParameterList?.ToString())}");
+                Utils.AddToGeneratedSources(context, generatedFiles, destClass, sb, addTraitAttr: addTraitAttr, semanticModel: semanticModel);
+                return;
+            }
+
+            string destConstraints = Utils.RemoveWhitespace(destClass.ConstraintClauses.ToString());
+            string traitConstraints = Utils.RemoveWhitespace(traitClassNode.ConstraintClauses.ToString());
+
+            if (traitConstraints != destConstraints)
+            {
+                var sb = Utils.ReturnError($"Constraints definitions should be exactly the same for Trait and destination classes, but got {Utils.RemoveNewLine(traitClassNode.ConstraintClauses.ToString())} and {Utils.RemoveNewLine(destClass.ConstraintClauses.ToString())}");
+                Utils.AddToGeneratedSources(context, generatedFiles, destClass, sb, addTraitAttr: addTraitAttr, semanticModel: semanticModel);
+                return;
+            }
+
+            ProcessAddSimpleTrait(context, generatedFiles, traitClassNode, semanticModel, destClass, alreadyProcessedTraits);
+ 
+        }
+
+
+
         public static StringBuilder ProcessAddTrait(GeneratorExecutionContext context, HashSet<string> generatedFiles, HashSet<string> alreadyProcessedT4, T4Processor t4Processor, AttributeSyntax addTraitAttr, SemanticModel semanticModel, ClassDeclarationSyntax destClass, HashSet<string> alreadyProcessedTraits)
         {
             StringBuilder sb = new();
