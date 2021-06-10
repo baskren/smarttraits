@@ -3,7 +3,7 @@
 namespace SmartTraits.Tests.Stage7
 {
     [TraitInterface]
-    interface IName
+    public interface IName
     {
         string FirstName { get; set; }
         string LastName { get; set; }

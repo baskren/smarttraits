@@ -11,7 +11,7 @@ namespace SmartTraits
 {
     public static class AddTraitProcessor
     {
-        static void ProcessAddSimpleTrait(GeneratorExecutionContext context, HashSet<string> generatedFiles, ClassDeclarationSyntax traitClassNode, SemanticModel semanticModel, ClassDeclarationSyntax destClass, HashSet<string> alreadyProcessedTraits)
+        static void ProcessAddSimpleTrait(GeneratorExecutionContext context, HashSet<string> generatedFiles, ClassDeclarationSyntax traitClassNode, SemanticModel semanticModel, ClassDeclarationSyntax destClass, HashSet<string> alreadyProcessedTraits, string[] mappedGenerics = null)
         {
             StringBuilder sb = new();
 
@@ -29,14 +29,116 @@ namespace SmartTraits
                 nameSpaceStringBuilder.AppendLine("{");
                 start = traitNamespaceNode.Span.Start;
             }
+            else
+                traitNamespaceNode = null;
 
             var usings = traitClassNode.GetSpanText(0, start);
             sb.Append(usings);
             sb.Append(nameSpaceStringBuilder);
 
             sb.Append($"    {destClass.Modifiers} class {destClass.Identifier} ");
-
             int end = traitClassNode.Identifier.Span.End;
+
+            // is this a generic trait?
+            var wordBounds = new[] { ' ', '\t', '\r', '\n', '<', '>', ',', '(' };
+            var genericMap = new Dictionary<string, string>();
+            if (traitClassNode.TypeParameterList?.ToString().Trim().Split(wordBounds, StringSplitOptions.RemoveEmptyEntries) is string[] generics && generics.Length > 0)
+            {
+                if (mappedGenerics is null || mappedGenerics.Length != generics.Length)
+                {
+                    sb = Utils.ReturnError($"Mapped Generics do not match Trait Classes Generics");
+                    Utils.AddToGeneratedSources(context, generatedFiles, destClass, sb, traitClassNode: traitClassNode, semanticModel: semanticModel);
+                    return;
+                }
+
+                var typeText = traitClassNode.TypeParameterList?.ToFullString();
+                for (int i = 0; i < generics.Length; i++)
+                {
+                    genericMap[generics[i]] = mappedGenerics[i];
+                    typeText = Utils.PopulatePlaceholder(typeText, generics[i], mappedGenerics[i]);
+                }
+
+                end = traitClassNode.TypeParameterList.Span.End;
+
+                //string destConstraints = Utils.RemoveWhitespace(destClass.ConstraintClauses.ToString());
+                //string traitConstraints = Utils.RemoveWhitespace(traitClassNode.ConstraintClauses.ToString());
+                var clauseText = traitClassNode.ConstraintClauses.ToString();
+                typeText += " " + clauseText;
+                if (!string.IsNullOrWhiteSpace(clauseText))
+                {
+                    foreach (var clause in traitClassNode.ConstraintClauses)
+                    {
+                        var clauseName = clause.Name.ToString();
+                        
+                        if (genericMap.TryGetValue(clauseName, out var mappedClauseName))
+                        {
+                            var clauseType = semanticModel.Compilation.GetTypeByMetadataName(mappedClauseName);
+                            foreach (var constraint in clause.Constraints)
+                            {
+                                SyntaxKind kind = constraint.Kind();
+                                
+                                switch (kind)
+                                {
+                                    case SyntaxKind.ConstructorConstraint:
+                                        if (!clauseType.Constructors.Where(c => c.Parameters.Length == 0).Any())
+                                        {
+                                            sb = Utils.ReturnError($"Constraint clause [{clauseName}] mapped to type [{mappedClauseName}] does not comply with new() constraint.");
+                                            Utils.AddToGeneratedSources(context, generatedFiles, destClass, sb, traitClassNode: traitClassNode, semanticModel: semanticModel);
+                                            return;
+                                        }
+                                        break;
+                                    case SyntaxKind.ClassConstraint:
+                                    case SyntaxKind.StructConstraint:
+                                        {
+                                            if (constraint.GetNamedTypeSymbol(semanticModel) is INamedTypeSymbol constraintType)
+                                            {
+                                                if (!clauseType.InheritsFrom(constraintType))
+                                                {
+                                                    sb = Utils.ReturnError($"Constraint clause [{clauseName}] mapped to type [{mappedClauseName}] does not inherit from constraint [{constraintType}]");
+                                                    Utils.AddToGeneratedSources(context, generatedFiles, destClass, sb, traitClassNode: traitClassNode, semanticModel: semanticModel);
+                                                    return;
+                                                }
+                                            }
+                                        }
+                                        break;
+                                    case SyntaxKind.TypeConstraint:
+                                        {
+                                            if (constraint.GetNamedTypeSymbol(semanticModel) is INamedTypeSymbol constraintType)
+                                            {
+                                                if (!clauseType.Implements(constraintType))
+                                                {
+                                                    sb = Utils.ReturnError($"Constraint clause [{clauseName}] mapped to type [{mappedClauseName}] does not implement interface [{constraint.ToFullString()}]");
+                                                    Utils.AddToGeneratedSources(context, generatedFiles, destClass, sb, traitClassNode: traitClassNode, semanticModel: semanticModel);
+                                                    return;
+                                                }
+                                            }
+                                        }
+                                        break;
+                                    default:
+                                        {
+                                            sb = Utils.ReturnError($"Not able to test if constraint clause [{clauseName}] mapped to type [{mappedClauseName}]");
+                                            Utils.AddToGeneratedSources(context, generatedFiles, destClass, sb, traitClassNode: traitClassNode, semanticModel: semanticModel);
+                                            return;
+                                        }
+                                }
+                            }
+                            typeText = Utils.PopulatePlaceholder(typeText, clauseName, mappedClauseName);
+                        }
+                        else
+                        {
+                            sb = Utils.ReturnError($"Could not find type that maps to clause type " + clauseName);
+                            Utils.AddToGeneratedSources(context, generatedFiles, destClass, sb, traitClassNode: traitClassNode, semanticModel: semanticModel);
+                            return;
+                        }
+                    }
+                    sb.Append(" // " + traitClassNode.Identifier.ToFullString() + typeText);
+                    end = traitClassNode.ConstraintClauses.Span.End;
+                }
+
+            }
+
+            genericMap[traitClassNode.Identifier.ToString()] = destClass.Identifier.ToString();
+
             var ancestorBuilder = new StringBuilder();
             ancestorBuilder.Append(": ");
             if (traitClassNode.BaseList?.Types is SeparatedSyntaxList<BaseTypeSyntax> types)
@@ -93,6 +195,9 @@ namespace SmartTraits
                 sb.Append(ancestorBuilder.ToString());
 
             var remaining = traitClassNode.GetSpanText(end);
+            foreach (var key in genericMap.Keys)
+                remaining = Utils.PopulatePlaceholder(remaining, key, genericMap[key]);
+
             sb.Append(remaining);
 
             Utils.AddToGeneratedSources(context, generatedFiles, destClass, sb, traitClassNode: traitClassNode, semanticModel: semanticModel);
@@ -158,27 +263,41 @@ namespace SmartTraits
             }
 
 
-            string destinationGenerics = Utils.RemoveWhitespace(destClass.TypeParameterList?.ToString());
-            string traitGenerics = Utils.RemoveWhitespace(traitClassNode.TypeParameterList?.ToString());
+            //string destinationGenerics = Utils.RemoveWhitespace(.TypeParameterList?.ToString());
+            //string traitGenerics = Utils.RemoveWhitespace(traitClassNode.TypeParameterList?.ToString());
+            var attributeGenerics = ((Microsoft.CodeAnalysis.INamedTypeSymbol)addTraitType.Type).TypeArguments;
+            var mappedGenerics = attributeGenerics.Select(t => t.ToString()).ToArray();
+            //var traitGenerics = traitClassNode.Type
 
+            /*
             if (traitGenerics != destinationGenerics)
             {
                 var sb = Utils.ReturnError($"Generics definition should be exactly the same for Trait and destination classes, but got {Utils.RemoveNewLine(traitClassNode.TypeParameterList?.ToString())} and {Utils.RemoveNewLine(destClass.TypeParameterList?.ToString())}");
                 Utils.AddToGeneratedSources(context, generatedFiles, destClass, sb, addTraitAttr: addTraitAttr, semanticModel: semanticModel);
                 return;
             }
+            */
+            /*
+            var wordBounds = new[] { ' ', '\t', '\r', '\n', '<', '>', ',', '(' };
+            var traitGenericsPlaceholders = traitClassNode.TypeParameterList;
+            var placeholders = traitGenericsPlaceholders.ToString().Trim().Split(wordBounds, StringSplitOptions.RemoveEmptyEntries);
+            var text = traitClassNode.ToFullString();
+            var newText = Utils.PopulatePlaceholder(text, placeholders[0], mappedGenerics[0]);
+            newText = Utils.PopulatePlaceholder(newText, placeholders[1], mappedGenerics[1]);
+            */
 
             string destConstraints = Utils.RemoveWhitespace(destClass.ConstraintClauses.ToString());
             string traitConstraints = Utils.RemoveWhitespace(traitClassNode.ConstraintClauses.ToString());
 
+            /*
             if (traitConstraints != destConstraints)
             {
                 var sb = Utils.ReturnError($"Constraints definitions should be exactly the same for Trait and destination classes, but got {Utils.RemoveNewLine(traitClassNode.ConstraintClauses.ToString())} and {Utils.RemoveNewLine(destClass.ConstraintClauses.ToString())}");
                 Utils.AddToGeneratedSources(context, generatedFiles, destClass, sb, addTraitAttr: addTraitAttr, semanticModel: semanticModel);
                 return;
             }
-
-            ProcessAddSimpleTrait(context, generatedFiles, traitClassNode, semanticModel, destClass, alreadyProcessedTraits);
+            */
+            ProcessAddSimpleTrait(context, generatedFiles, traitClassNode, semanticModel, destClass, alreadyProcessedTraits, mappedGenerics: mappedGenerics);
  
         }
 
