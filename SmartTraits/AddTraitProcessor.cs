@@ -15,6 +15,10 @@ namespace SmartTraits
         {
             StringBuilder sb = new();
 
+            if (alreadyProcessedTraits.Contains(traitClassNode.Identifier.ToFullString()))
+                return;
+
+            alreadyProcessedTraits.Add(traitClassNode.Identifier.ToFullString());
             /*
             var traitCompUnit = traitClassNode.Ancestors().OfType<CompilationUnitSyntax>().FirstOrDefault();
             var usings = traitClassNode.GetSpanText(traitCompUnit.Usings.FullSpan);

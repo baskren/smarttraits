@@ -365,8 +365,11 @@ namespace SmartTraits
                     index++;
                 }
             }
-            //sb.Append(text.Substring(text.Length - placeholder.Length - 2));
-            return sb.ToString();
+            text = text.Substring(0, text.Length - 1);
+            if (index < text.Length)
+              sb.Append(text.Substring(index));
+            var result = sb.ToString();
+            return result;
         }
 
         public static bool InheritsFrom(this INamedTypeSymbol symbol, ITypeSymbol type)
